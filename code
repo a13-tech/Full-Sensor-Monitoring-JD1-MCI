@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Wire.h>
@@ -5,34 +6,43 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
-// --- KONFIGURASI WIFI ACCESS POINT (AP) ---
-const char* ap_ssid = "ESP32-Monitoring";  // Nama Wi-Fi buatan ESP32
-const char* ap_password = "password123";   // Password Wi-Fi (Minimal 8 Karakter)
+// =========================================================================
+// KONFIGURASI WIFI ACCESS POINT (AP) - MCI CREATIVE TEAM
+// =========================================================================
+const char* ap_ssid = "MCI JD1";          // SSID
+const char* ap_password = "CREATIVETEAM";  // Password Wi-Fi
 
 WebServer server(80);
 
-// --- KONFIGURASI OLED 1.3 INCI (SH1106 I2C) ---
-// GPIO 23 = SDA, GPIO 22 = SCL
+// =========================================================================
+// DRIVER OLED 1.3 INCI (SH1106 I2C)
+// GPIO 22 = SCL, GPIO 23 = SDA
+// =========================================================================
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ 22, /* data=*/ 23);
 
-// --- PIN DEFINITION ---
-#define DS18B20_PIN 4
-#define TRIG_PIN    5
-#define ECHO_PIN    18
-#define PIR_PIN     19
-#define IR_PIN      21
+// =========================================================================
+// PIN DEFINITION
+// =========================================================================
+#define DS18B20_PIN 4  // Pin Data DS18B20
+#define TRIG_PIN    5  // Pin Trig HC-SR04
+#define ECHO_PIN    18 // Pin Echo HC-SR04
+#define PIR_PIN     25 // Pin OUT HC-SR501 PIR
+#define IR_PIN      21 // Pin OUT Sensor IR
 
-// Setup DS18B20
+// =========================================================================
+// INISIALISASI SENSOR & VARIABEL GLOBAL
+// =========================================================================
 OneWire oneWire(DS18B20_PIN);
 DallasTemperature tempSensor(&oneWire);
 
-// Variable Global Data Sensor
 float suhuC = 0.0;
 float jarakCm = 0.0;
 bool adaGerakan = false;
 bool terhalangIR = false;
 
-// Function Membaca Sensor
+// =========================================================================
+// FUNGSI PEMBACAAN SENSOR
+// =========================================================================
 void bacaSensor() {
   // DS18B20
   tempSensor.requestTemperatures();
@@ -47,17 +57,19 @@ void bacaSensor() {
   long duration = pulseIn(ECHO_PIN, HIGH);
   jarakCm = duration * 0.034 / 2.0;
 
-  // HC-SR501 & IR
+  // PIR & IR
   adaGerakan = (digitalRead(PIR_PIN) == HIGH);
-  terhalangIR = (digitalRead(IR_PIN) == LOW); 
+  terhalangIR = (digitalRead(IR_PIN) == LOW); // Active LOW
 }
 
-// Function Update Tampilan OLED
+// =========================================================================
+// FUNGSI UPDATE TAMPILAN OLED 1.3 INCI
+// =========================================================================
 void updateOLED() {
   u8g2.clearBuffer();
   
   u8g2.setFont(u8g2_font_ncenB08_tr);
-  u8g2.drawStr(0, 10, "ESP32 AP MONITOR");
+  u8g2.drawStr(0, 10, "MCI JD1 MONITOR");
   u8g2.drawLine(0, 13, 128, 13);
 
   u8g2.setCursor(0, 26);
@@ -76,56 +88,116 @@ void updateOLED() {
   u8g2.sendBuffer();
 }
 
-// Function Tampilan Web Server (HTML)
+// =========================================================================
+// ENDPOINT DATA JSON (AUTO-REFRESH BACKGROUND)
+// =========================================================================
+void handleData() {
+  String json = "{";
+  json += "\"suhu\":" + String(suhuC, 1) + ",";
+  json += "\"jarak\":" + String(jarakCm, 1) + ",";
+  json += "\"pir\":" + String(adaGerakan ? "true" : "false") + ",";
+  json += "\"ir\":" + String(terhalangIR ? "true" : "false");
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
+// =========================================================================
+// FUNGSI TAMPILAN WEB SERVER (MCI DASHBOARD)
+// =========================================================================
 void handleRoot() {
-  String html = "<!DOCTYPE html><html><head><title>ESP32 Local Monitoring</title>";
-  html += "<meta name='viewport' content='width=device-width, initial-scale=1' http-equiv='refresh' content='2'>";
-  html += "<style>body{font-family:Arial;text-align:center;margin-top:30px;background:#1a1a1a;color:#fff;}";
-  html += ".card{background:#2d2d2d;padding:20px;margin:auto;width:85%;max-width:400px;border-radius:12px;box-shadow:0 4px 10px rgba(0,0,0,0.5);}";
-  html += ".val{font-size:20px;font-weight:bold;margin:12px 0;background:#3a3a3a;padding:10px;border-radius:8px;}</style></head><body>";
-  html += "<div class='card'><h2>ESP32 AP Dashboard</h2>";
-  html += "<div class='val'>Suhu: " + String(suhuC, 1) + " &deg;C</div>";
-  html += "<div class='val'>Jarak: " + String(jarakCm, 1) + " cm</div>";
-  html += "<div class='val'>PIR: " + String(adaGerakan ? "<span style='color:#ff4d4d;'>Ada Gerakan</span>" : "<span style='color:#4dff88;'>Aman</span>") + "</div>";
-  html += "<div class='val'>IR: " + String(terhalangIR ? "<span style='color:#ff4d4d;'>Terhalang</span>" : "<span style='color:#4dff88;'>Bebas</span>") + "</div>";
-  html += "</div></body></html>";
-  
+  String html = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MCI JD1 Telemetry</title>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; margin-top: 30px; background: #121212; color: #fff; }
+    .card { background: #1e1e1e; padding: 20px; margin: auto; width: 85%; max-width: 400px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.6); border: 1px solid #333; }
+    h2 { margin-top: 0; color: #00bcd4; font-size: 22px; }
+    .sub { font-size: 11px; color: #888; margin-bottom: 15px; letter-spacing: 1px; }
+    .val { font-size: 17px; font-weight: bold; margin: 10px 0; background: #2a2a2a; padding: 12px; border-radius: 8px; text-align: left; display: flex; justify-content: space-between; }
+  </style>
+</head>
+<body>
+  <div class='card'>
+    <h2>MCI JD1 Dashboard</h2>
+    <div class='sub'>CREATIVE & ENGINEERING TEAM</div>
+    <div class='val'><span>Suhu Target:</span> <span><span id='suhu'>--</span> &deg;C</span></div>
+    <div class='val'><span>Jarak Halangan:</span> <span><span id='jarak'>--</span> cm</span></div>
+    <div class='val'><span>Sensor PIR:</span> <span id='pir'>--</span></div>
+    <div class='val'><span>Sensor IR:</span> <span id='ir'>--</span></div>
+  </div>
+
+  <script>
+    function updateData() {
+      fetch('/data')
+        .then(response => response.json())
+        .then(data => {
+          document.getElementById('suhu').innerText = data.suhu;
+          document.getElementById('jarak').innerText = data.jarak;
+          
+          let pirElem = document.getElementById('pir');
+          pirElem.innerHTML = data.pir 
+            ? "<span style='color:#ff4d4d;'>Ada Gerakan</span>" 
+            : "<span style='color:#4dff88;'>Aman</span>";
+            
+          let irElem = document.getElementById('ir');
+          irElem.innerHTML = data.ir 
+            ? "<span style='color:#ff4d4d;'>Terhalang</span>" 
+            : "<span style='color:#4dff88;'>Bebas</span>";
+        })
+        .catch(err => console.error(err));
+    }
+
+    setInterval(updateData, 1000);
+    updateData();
+  </script>
+</body>
+</html>
+)rawliteral";
+
   server.send(200, "text/html", html);
 }
 
+// =========================================================================
+// SETUP UTAMA SYSTEM
+// =========================================================================
 void setup() {
   Serial.begin(115200);
 
   // Inisialisasi OLED
   u8g2.begin();
 
-  // Inisialisasi Pin Sensor
+  // Inisialisasi Hardware Sensor
   tempSensor.begin();
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   pinMode(PIR_PIN, INPUT);
   pinMode(IR_PIN, INPUT);
 
-  // Set ESP32 ke Mode Access Point
+  // Jalankan Access Point Mode
   WiFi.softAP(ap_ssid, ap_password);
   
   IPAddress IP = WiFi.softAPIP();
-  Serial.println("\nAccess Point Berhasil Dibuat!");
-  Serial.print("Nama Wi-Fi : ");
-  Serial.println(ap_ssid);
-  Serial.print("IP Address : ");
-  Serial.println(IP); // Secara default IP Access Point adalah 192.168.4.1
+  Serial.println("\n[MCI SYSTEM ONLINE]");
+  Serial.print("SSID       : "); Serial.println(ap_ssid);
+  Serial.print("IP Address : "); Serial.println(IP);
 
-  // Setup Web Server
+  // Routing Web Server
   server.on("/", handleRoot);
+  server.on("/data", handleData);
   server.begin();
 }
 
+// =========================================================================
+// LOOP UTAMA PROGRAM
+// =========================================================================
 void loop() {
-  server.handleClient(); // Menangani request dari browser
+  server.handleClient();
   
   static unsigned long lastUpdate = 0;
-  if (millis() - lastUpdate >= 1000) { // Update data sensor & OLED setiap 1 detik
+  if (millis() - lastUpdate >= 1000) {
     lastUpdate = millis();
     bacaSensor();
     updateOLED();
